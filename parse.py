@@ -24,8 +24,8 @@ options = {0 : 'choke',
            10 : 'keep-alive', }
 
 def client():
-    #filename = 'C:\Users\Xialin\Documents\CS 3251\Let-it-go-frozen.gif.torrent'                           # USE THIS TO TEST BASIC TORRENT FUNCTIONALITY
-    filename = 'C:\Users\Xialin\Documents\CS 3251\REZ056.mp3.torrent'                # USE THIS TO TEST MULTIFILE TORRENT
+    filename = 'C:\Users\Xialin\Documents\CS 3251\Let-it-go-frozen.gif.torrent'                           # USE THIS TO TEST BASIC TORRENT FUNCTIONALITY
+    #filename = 'E:\Downloads\BitTorrentClient\Anathema -- Vol18 [mininova].torrent'                # USE THIS TO TEST MULTIFILE TORRENT
     #filename = 'E:\Downloads\BitTorrentClient\dsl-4.4.10.iso.torrent'                              # USE THIS TO TEST PEERS THAT DO NOT HAVE WHOLE FILE
     #filename = 'E:\Downloads\BitTorrentClient\debian-live-6.0.7-amd64-gnome-desktop.iso.torrent'   # USE THIS TO TEST LARGE FILE TORRENT WITH ENGRYPTION (I THINK)
     bencodeMetaInfo = get_torrent_info(filename)
@@ -54,14 +54,14 @@ def client():
     peerID = 'vincentlugli1.0sixty'
     announceUrl = announceKey + '?info_hash=' + sha1HashedInfo + '&peer_id=' + peerID + '&port=5100&uploaded=0&downloaded=0&left=' + str(length) + '&compact=1'
     #print(announceUrl)
-    announceResponse = requests.get(announceUrl)
-    #print(announceResponse.status_code)
-    content = bdecode(announceResponse.content)
-    #print(content)
-    peerList = content['peers']
-    #print(peerList)
-    peerIPs = get_peer_IP_list(peerList)
-    peerPorts = get_peer_port_list(peerList)
+    # announceResponse = requests.get(announceUrl)
+    # #print(announceResponse.status_code)
+    # content = bdecode(announceResponse.content)
+    # #print(content)
+    # peerList = content['peers']
+    # #print(peerList)
+    # peerIPs = get_peer_IP_list(peerList)
+    # peerPorts = get_peer_port_list(peerList)
     #print(peerIPs)
     #print(peerPorts)
 
@@ -77,7 +77,8 @@ def client():
             lengthOfPiecesLeft.append(lengthLeft)
         lengthLeft -= lengthOfPiece
     #print(lengthOfPiecesLeft)
-
+    lengthOfPiecesLeftCopy = lengthOfPiecesLeft
+    
     # Actual connections begin here.
 
     # Handshake
@@ -86,8 +87,10 @@ def client():
     #print(handshakeMessage)
 
     sock = socket.socket()
-    host = peerIPs[1]
-    port = peerPorts[1]
+    host = "127.0.0.1"
+    port = 52276
+    #host = peerIPs[1]
+    #port = peerPorts[1]
     
     sock.connect((host, port))
     sock.send(handshakeMessage)
@@ -127,6 +130,7 @@ def client():
     sentSize = 0
     currentFile = 1
     sizeDownloaded = 0
+    piece = ''
     if (isMultiFile):
         f = open(infoDict['files'][currentFile-1]['path'][0], 'wb')
         f.close()
@@ -134,7 +138,7 @@ def client():
         f = open(infoDict['name'], 'wb')
         f.close()
     #f.close()
-    #print(os.path.getsize('C:\Users\Xialin\Documents\CS 3251\BitTorrentClient\\' + infoDict['files'][currentFile-1]['path'][0]))
+
     # Message Requesting
     
     while length > 0:
@@ -153,19 +157,20 @@ def client():
             if (payload[0] == 7):
                 sentSize = blockSize
                 lengthOfPiecesLeft[index] -= len(payload[3])
-                length -= len(payload[3])
+                #length -= len(payload[3])
                 sizeOfFiles[currentFile] -= len(payload[3])
                 begin += sentSize
-                sizeDownloaded += len(payload[3])
+                #sizeDownloaded += len(payload[3])
                 if (isMultiFile):
                     f = open(infoDict['files'][currentFile-1]['path'][0], 'ab')
                 else:
                     f = open(infoDict['name'], 'ab')
 
-                write_to_file(f, str(payload[3]))
+                piece += str(payload[3])
+                #write_to_file(f, str(payload[3]))
                 f.close()
                 
-                #print(os.path.getsize('C:\Users\Xialin\Documents\CS 3251\BitTorrentClient\\' + infoDict['files'][currentFile-1]['path'][0]))
+
             print('Number of Pieces: ' + str(index+1) + '/' + str(numberOfPieces))
             
         elif (lengthOfPiecesLeft[index] - blockSize > 0 and sizeOfFiles[currentFile] - blockSize <= 0):
@@ -251,19 +256,32 @@ def client():
             if (payload[0] == 7):
                 print('Number of Pieces: ' + str(index+1) + '/' + str(numberOfPieces))
                 #sizeOfFiles[currentFile] -= len(payload[3])
-                # move to the next piece
-                index += 1
+                
                 # reset to the start of the piece.
                 begin = 0
                 if (isMultiFile):
                     f = open(infoDict['files'][currentFile-1]['path'][0], 'ab')
                 else:
                     f = open(infoDict['name'], 'ab')
-                write_to_file(f, str(payload[3]))
+
+                piece += str(payload[3])
+                verification = verify_piece(piece, infoDict, index)
+
+                if (verification):
+                    # Write piece to file
+                    write_to_file(f, piece)
+                    
+                    sizeDownloaded += len(piece)
+                    length -= len(piece)
+                    
+                    # move to the next piece
+                    index += 1
+                else:
+                    lengthOfPiecesLeft = lengthOfPiecesLeftCopy[index]
+                    # Discard piece, start over
                 f.close()
-                #print(os.path.getsize('C:\Users\Xialin\Documents\CS 3251\BitTorrentClient\\' + infoDict['files'][currentFile-1]['path'][0]))
-                sizeDownloaded += len(payload[3])
-                length -= len(payload[3])
+                piece = ''
+                
             
         
         if (index >= numberOfPieces):
@@ -474,5 +492,18 @@ def parse_message(messageLengthInt, sock, numberOfPieces):
 
 def write_to_file(f, content):
     f.write(content)
+
+def verify_piece(piece, infoDict, currentPiece):
+    piecesDecoded = infoDict['pieces']
+    hashedPiece = piecesDecoded[currentPiece*20:currentPiece*20 + 20]
+    print('given: ')
+    print(hashedPiece)
+    
+    print('taken: ')
+    print(hashlib.sha1(piece).digest())
+    if (hashlib.sha1(piece).digest() == hashedPiece):
+        return True
+    else:
+        return False
 
 client()
